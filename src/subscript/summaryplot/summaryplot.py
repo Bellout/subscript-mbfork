@@ -18,6 +18,7 @@
 #      https://github.com/equinor/subscript
 
 
+import datetime
 import argparse
 import difflib
 import logging
@@ -39,7 +40,7 @@ from resdata.grid import Grid  # type: ignore
 from resdata.resfile import ResdataFile  # type: ignore
 from resdata.summary import Summary  # type: ignore
 
-import subscript
+import subscript  # type: ignore
 
 logger = subscript.getLogger(__name__)
 
@@ -130,6 +131,7 @@ def summaryplotter(
     summaryfiles: list,
     datafiles: Optional[list] = None,
     vectors: Optional[list] = None,
+    optsmryfiles: Optional[list] = None,
     parameterfiles: Optional[list] = None,
     histvectors: bool = False,
     normalize: bool = False,
@@ -269,9 +271,9 @@ def summaryplotter(
         print("Error: No summary files found")
         sys.exit(1)
 
-    # We support wildcards in summary vectors. The wildcards will be matched against
-    # the existing vectors in the first Eclipse deck mentioned on the command
-    # line
+    # We support wildcards in summary vectors. The wildcards
+    # will be matched against the existing vectors in the
+    # first Eclipse deck mentioned on the command line
     matchedsummaryvectors = []
     restartvectors = []
     wildcard_in_use = False
@@ -298,7 +300,8 @@ def summaryplotter(
     if datafiles is None:
         datafiles = []
 
-    # If we have any restart vectors defined, we must also load the restart files
+    # If we have any restart vectors defined,
+    # we must also load the restart files
     if restartvectors:
         for datafile in datafiles:
             rstfile = datafile.replace(".DATA", "")
@@ -367,6 +370,8 @@ def summaryplotter(
                         )
                     else:
                         restartvectordata[rstvec][datafile].append(1 - swatvalue)
+    #
+    #
     # Data structure examples
     # restartvectordata["SOIL:1,1,1"]["datafile"] = [0.89, 0.70, 0.60, 0.55, 0.54]
     # restartvectortimes["SOIL:1,1,1"]["datafile"] = ["1 Jan 2011", "1 Jan 2012"]
@@ -377,13 +382,15 @@ def summaryplotter(
     pyplot = matplotlib.pyplot
 
     numberofcolours = len(summaryfiles)
-    alpha = 0.7  # default
+    # alpha = 0.7  # default
+    alpha = 0.7
     if ensemblemode:
         numberofcolours = len(matchedsummaryvectors) + len(restartvectors)
         if len(summaryfiles) > 50:
             alpha = 0.4
         if len(summaryfiles) > 5 and len(summaryfiles) < 51:
             # Linear transparency in number of summaryfiles between 5 and 50:
+            # alpha = 0.7 - (float((len(summaryfiles)) - 5.0)) / 45.0 * 0.3
             alpha = 0.7 - (float((len(summaryfiles)) - 5.0)) / 45.0 * 0.3
     if singleplot:
         numberofcolours = len(matchedsummaryvectors)
@@ -406,6 +413,7 @@ def summaryplotter(
         pyplot.clf()
         pyplot.close()
 
+    vector_count = 0
     for vector_idx, vector in enumerate(matchedsummaryvectors):
         if (not singleplot) or vector == matchedsummaryvectors[0]:
             fig = pyplot.figure()
@@ -413,6 +421,13 @@ def summaryplotter(
                 pyplot.colorbar(invisiblecontourplot, ax=pyplot.gca())
             pyplot.xlabel("Date")
 
+            #
+            #
+            #
+            # print("vector @datetime: {0}".format(vector))
+            #
+            #
+            #
         # Set background colour outside plot area to white:
         fig.patch.set_facecolor("white")
 
@@ -452,6 +467,15 @@ def summaryplotter(
                 pyplot.plot_date(firstsummary.dates, values, "k.", label=sumlabel)
                 fig.autofmt_xdate()
 
+        #
+        #
+        #
+        #
+        #
+        ens_main = True
+        init_time = datetime.datetime(2024, 7, 1, 0, 0)
+
+        # def plot_smry_files(ens_main, smryfiles, init_time, wmctl_lnd):
         for idx, summaryfile in enumerate(summaryfiles):
             if vector in summaryfile:
                 if idx >= maxlabels:  # Truncate legend if too many
@@ -462,11 +486,28 @@ def summaryplotter(
                     else:
                         sumlabel = summaryfile.case.lower()
 
+                # print("vector @values: {0}".format(vector))
                 values = summaryfile.numpy_vector(vector)
+                # print(f"len(values) '{len(values)}'")
 
+                # hardcode trimming to last period, move to where files are read
+                index = summaryfile.dates.index(init_time)
+                dates = summaryfile.dates[index:]
+                values = values[index:]
+                # print(f"len(values) '{len(values)}'")
+                #
+                #
                 if ensemblemode:
                     cycledcolor = colours[vector_idx]
                     sumlabel = vector if idx == 0 else "_nolegend_"
+                    if "WGP" in vector or "FGP" in vector or "RGP" in vector:
+                        cycledcolor = "green"
+                    elif "WOP" in vector or "FOP" in vector or "ROP" in vector:
+                        cycledcolor = "red"
+                    elif "WWP" in vector or "FWP" in vector or "RWP" in vector:
+                        cycledcolor = "blue"
+                #
+                #
                 elif singleplot:
                     cycledcolor = colours[vector_idx]
                 else:
@@ -476,27 +517,176 @@ def summaryplotter(
                     maxvalue = values.max()
                     if abs(maxvalue) > 0.0:
                         values = [i * 1 / maxvalue for i in values]
-                        sumlabel = sumlabel + " " + str(maxvalue)
+                        sumlabel = sumlabel + " " + "{:.3e}".format(maxvalue)
                     else:
                         logger.warning(
-                            "Could not normalize %s, maxvalue is %g", vector, maxvalue
+                            "Could not normalize %s, maxvalue is %g",
+                            vector,
+                            maxvalue,
                         )
 
                 pyplot.plot_date(
-                    summaryfile.dates,
+                    # summaryfile.dates,
+                    dates,
                     values,
                     fmt="-",
                     xdate=True,
                     ydate=False,
                     color=cycledcolor,
                     label=sumlabel,
-                    linewidth=1.5,
+                    linewidth=1.25,
                     alpha=alpha,
                 )
-                fig.autofmt_xdate()
 
+                if idx == 0 and vector_count < 1:
+                    # print("idx @plot: {0}".format(idx))
+                    # vertical lines representing opt time periods
+                    # default oil -> gas prod conversion date
+                    t0 = datetime.datetime(2024, 11, 1, 0, 0)
+                    t1_1 = datetime.datetime(2028, 1, 1, 0, 0)
+                    t1_2 = datetime.datetime(2031, 1, 1, 0, 0)
+                    t1_3 = datetime.datetime(2034, 1, 1, 0, 0)
+                    if "C-1_H" in vector:
+                        t1_1 = datetime.datetime(2027, 10, 2, 0, 0)
+
+                    dt_vector = [t0, t1_1, t1_2, t1_3]
+                    for dt in dt_vector:
+                        pyplot.gca().axvline(
+                            dt,
+                            color=[0.1, 0.1, 0.1],
+                            linestyle="--",
+                            linewidth=1.5,
+                            alpha=0.9,
+                        )
+
+                    # red line representing opt control mode
+                    if "WMCTL" in vector:
+                        iti = dates.index(init_time)
+                        it0 = dates.index(t0)
+                        it1 = dates.index(t1_1)
+                        it2 = dates.index(t1_2)
+                        it3 = dates.index(t1_3)
+                        wmctl_values = [3] * len(values)
+                        # oil producers (WMCTL=ORAT=>1)
+                        print("OPTMCTL: {0}".format(vector))
+                        if "C-1_H" in vector:
+                            print("iti: {0}, it0: {1}".format(it1, it0))
+                            wmctl_values[it0:it1] = [1] * (it1 - it0)
+                        elif "D-3_AH" in vector:
+                            print("iti: {0}, it3: {1}".format(it1, it3))
+                            wmctl_values[it0 : it3 + 1] = [1] * (it3 + 1 - it0)
+
+                        pyplot.plot_date(
+                            dates[it0:],
+                            wmctl_values[it0:],
+                            fmt="-",
+                            xdate=True,
+                            ydate=False,
+                            color="red",
+                            label="OPTMCTL",
+                            linewidth=2.6,
+                            alpha=0.7,
+                        )
+
+                fig.autofmt_xdate()
         if not nolegend:
             pyplot.legend(loc="best", fancybox=True, framealpha=0.5)
+
+        # ensemble plots
+        for idx, optsmryfile in enumerate(optsmryfiles):
+            # print("vector @opt values: {0}".format(idx))
+            if vector in summaryfile:
+                sumlabel = "_nolegend_"
+                values = optsmryfile.numpy_vector(vector)
+                index = optsmryfile.dates.index(init_time)
+                dates = optsmryfile.dates[index:]
+                values = values[index:]
+
+                cycledcolor = [.3, .3, .4]
+                
+
+                pyplot.plot_date(
+                    dates,
+                    values,
+                    fmt="-",
+                    xdate=True,
+                    ydate=False,
+                    color=cycledcolor,
+                    label=sumlabel,
+                    linewidth=1.25,
+                    alpha=alpha,
+                )
+
+        vector_count += 1
+
+    #
+    #
+    #
+    #
+    #
+    #
+
+    # hardcode ylim lower bound to 0
+    ylim = pyplot.gca().get_ylim()
+    # print("gca_ylim: {0}".format(ylim))
+    pyplot.gca().set_ylim(0, ylim[1])
+
+    # hardcode ylims: well rates
+    if "WGPR" in vector:
+        pyplot.gca().set_ylim(0, 1.5e6)
+    elif "WOPR" in vector:
+        pyplot.gca().set_ylim(0, 420)
+    elif "WWPR" in vector:
+        pyplot.gca().set_ylim(0, 420)
+
+    # hardcode ylims: well total
+    if "WGPT" in vector:
+        pyplot.gca().set_ylim(0, 9e9)
+    #
+    elif "WOPT" in vector:
+        pyplot.gca().set_ylim(0, 5.5e5)
+        if "D-3_AH" in vector or "C-3_AH" in vector:  # Ile oil prods?
+            pyplot.gca().set_ylim(0, 5.5e6)
+    #
+    elif "WWPT" in vector:
+        pyplot.gca().set_ylim(0, 5e5)
+
+    # hardcode ylims: pressures
+    if "WBHP" in vector or "RPRP" in vector:
+        pyplot.gca().set_ylim(0, 420)
+    elif "WTHP" in vector or "RPRP" in vector:
+        pyplot.gca().set_ylim(0, 420)
+
+    # controls modes / states:
+    if "WSTAT" in vector or "WMCTL" in vector:
+        pyplot.gca().set_ylim(0, 7)
+
+    # hardcode ylims: field totals
+    if "FGPT" in vector:
+        pyplot.gca().set_ylim(0, 9.5e10)
+    if "FOPT" in vector:
+        pyplot.gca().set_ylim(0, 5e7)
+    if "FWPT" in vector:
+        pyplot.gca().set_ylim(0, 1.4e7)
+
+    if "RGPT" in vector:
+        pyplot.gca().set_ylim(0, 2.5e10)
+    if "ROPT" in vector:
+        pyplot.gca().set_ylim(0, 2e7)
+    if "RWPT" in vector:
+        pyplot.gca().set_ylim(0, 1.0e7)
+
+    pyplot.ticklabel_format(
+        axis="y",
+        style="sci",
+        scilimits=[-4, 4],
+    )
+
+    #
+    #
+    #
+    #
+
     for rstvec_idx, rstvec in enumerate(restartvectors):
         if not singleplot or (
             rstvec == restartvectors[0] and not matchedsummaryvectors
@@ -520,7 +710,12 @@ def summaryplotter(
         fig.patch.set_facecolor("white")
 
         # Add grey major gridlines:
-        pyplot.grid(visible=True, which="both", color="0.85", linestyle="-")
+        pyplot.grid(
+            visible=True,
+            which="both",
+            color="0.85",
+            linestyle="-",
+        )
 
         if datafiles is None:
             datafiles = []
@@ -558,18 +753,36 @@ def summaryplotter(
         if not nolegend:
             pyplot.legend(loc="best")
 
+    #
+    #
+    #
+    #
     if dumpimages:
-        pyplot.savefig("summaryplotdump.png", bbox_inches="tight")
-        pyplot.savefig("summaryplotdump.pdf", bbox_inches="tight")
+        # pyplot.savefig("smryplot.png", bbox_inches="tight")
+        pyplot.savefig("smryplot.pdf", bbox_inches="tight")
     else:
         pyplot.show()
 
 
+#
+#
+#
+#
+#
+#
+#
+#
+def extract_batch_number(path):
+    match = re.search(r"batch_(\d+)", path)
+    return int(match.group(1)) if match else None
+
+
 def split_vectorsdatafiles(vectorsdatafiles):
     """
-    Takes a list of strings and determines which of the arguments are Eclipse runs
-    (by attempting to construct an Summary object), and which are summary
-    vector names/wildcards (that is, those that are not openable as Summary)
+    Takes a list of strings and determines which of the
+    arguments are Eclipse runs (by attempting to construct
+    a Summary object), and which are summary vector names/
+    wildcards (that is, those that are not openable as Summary)
 
     Args:
         vectorsdatafiles (list): List of strings
@@ -580,15 +793,25 @@ def split_vectorsdatafiles(vectorsdatafiles):
     """
     summaryfiles = []  # Summary instances corresponding to datafiles
     datafiles = []  # strings
+
+    optsmryfiles = []
+    optdatafiles = []
+
     vectors = []  # strings
     parameterfiles = []  # strings
 
     for vecdata in vectorsdatafiles:
         try:
             sumfn = Summary(vecdata)
-            datafiles.append(vecdata)
 
-            summaryfiles.append(sumfn)
+            if extract_batch_number(vecdata) == 0:
+                datafiles.append(vecdata)
+                summaryfiles.append(sumfn)
+            else:
+                optdatafiles.append(vecdata)
+                optsmryfiles.append(sumfn)
+
+            print("lenght of optdatafiles: {0}".format(len(optdatafiles)))
 
             # Try to load a corresponding parameter-file for colouring data
             paths_to_check = [
@@ -602,7 +825,26 @@ def split_vectorsdatafiles(vectorsdatafiles):
         except IOError:
             # If we get here, we assume it was an Eclipse vector name.
             vectors.append(vecdata)
-    return (summaryfiles, datafiles, vectors, parameterfiles)
+
+    # return (summaryfiles, datafiles, vectors, parameterfiles)
+    return (
+        summaryfiles,
+        datafiles,
+        optsmryfiles,
+        optdatafiles,
+        vectors,
+        parameterfiles,
+    )
+
+
+#
+#
+#
+#
+#
+#
+#
+#
 
 
 def main():
@@ -615,19 +857,34 @@ def main():
     if args.verbose:
         logger.setLevel(logging.INFO)
 
-    (summaryfiles, datafiles, vectors, parameterfiles) = split_vectorsdatafiles(
-        args.VECTORSDATAFILES
-    )
+    # (
+    #     summaryfiles,
+    #     datafiles,
+    #     vectors,
+    #     parameterfiles,
+    # ) = split_vectorsdatafiles(args.VECTORSDATAFILES)
+
+    (
+        summaryfiles,
+        datafiles,
+        optsmryfiles,
+        opt_datafiles,
+        vectors,
+        parameterfiles,
+    ) = split_vectorsdatafiles(args.VECTORSDATAFILES)
+
     logger.info("Summaryfiles: %s", str(summaryfiles))
+    logger.info("optsmryfiles: %s", str(optsmryfiles))
     logger.info("Vectors: %s", str(vectors))
 
     # If user only wants to dump image to file, then do only that:
     if args.dumpimages:
-        print("Dumping plot to summaryplotdump.png and summaryplotdump.pdf")
+        print("Dumping plot to smryplot.png and smryplot.pdf")
         summaryplotter(
             summaryfiles=summaryfiles,
             datafiles=datafiles,
             vectors=vectors,
+            optsmryfiles=optsmryfiles,
             colourby=args.colourby,
             maxlabels=args.maxlabels,
             logcolourby=args.logcolourby,
@@ -647,6 +904,7 @@ def main():
             "summaryfiles": summaryfiles,
             "datafiles": datafiles,
             "vectors": vectors,
+            "optsmryfiles": optsmryfiles,
             "colourby": args.colourby,
             "maxlabels": args.maxlabels,
             "logcolourby": args.logcolourby,
